@@ -1,0 +1,437 @@
+//207 11733
+include "std/io"
+include "std/req"
+include "std/img"
+include "std/arr"
+include "std/list"
+include "std/str"
+include "std/exch"
+include "std/drw"
+include "std/win"
+include "std/math"
+include "std/time"
+include "std/sys"
+
+io.println("
+CONTROLS
+[SPACE]          place/move ROI box at mouse
+[LEFT/RIGHT ARR] prev/next cheatsheet candidate
+[.]              fast forward cheatsheet candidate
+[1-9]            adopt OCR candidate
+[X]              reject all candidates (unicode -1)
+[Q]              mask image eraser tool (hold)
+[`]              mask image flood tool
+[R]              relinquish current WIP label
+[S]              save current label and move on
+[UP ARR/ENTER]   prev/next page
+[BACKSPACE]      delete last saved label
+[O]              invoke OCR (requires ocr/ocr.mjs sever running)
+");
+
+argv := sys.argv()
+
+cs_idx := (argv.length()>1)?(argv[1] as i32):0;
+P0 := (argv.length()>0)?(argv[0] as i32):11;
+P1 := 223
+SCL := 2
+
+folder := (argv.length()>2)?(argv[2]):"cybt-dataset/labels-chr";
+
+mx := 0.0;
+my := 0.0;
+drw.size(1600,1024)
+
+ofx := -150;
+ofy := 200;
+
+roi := drw.create_graphics(48,48);
+roj := drw.create_graphics(192,192);
+unir := drw.create_graphics(16,16);
+mask := drw.create_graphics(192,192);
+clr := drw.create_graphics(192,192);
+comb := drw.create_graphics(576,240);
+mdat := arr.make({192,192}, 0 as u8)
+lbl := arr.make({192,192}, 0 as i32)
+
+
+unif := str.decode(io.read_file("data/dl/unifont.hex"),'utf-8').split("\n")
+hana := str.decode(io.read_file("data/gen/hanaminb.hex"),'utf-8').split("\n")
+chsh := str.decode(io.read_file("data/gen/cheatsheet.txt"),'utf-8').split("\n")
+
+
+func hex2dec(s:str):i32{
+  y := 0;
+  for (i := 0; i < s.length(); i++){
+    y *= 16;
+    x := 0;
+    if (s[i]>='a'){
+      x = 10+(s[i]-'a')
+    }else if (s[i]>='A'){
+      x = 10+(s[i]-'A')
+    }else{
+      x = s[i]-'0'
+    }
+    y += x;
+  }
+  return y;
+}
+
+func find_unif(unic:i32):str{
+  l := 0;
+  r := unif.length()-1;
+  while (l <= r) {
+    mid : i32 = (l+r) / 2;
+    curr := unif[mid];
+    u := hex2dec(curr.slice(0,4));
+    if (u == unic){
+      return curr;
+    }else if (u < unic){
+      l = mid + 1;
+    }else{
+      r = mid - 1;
+    }
+  }
+  return unif[0];
+}
+
+func find_hana(unic:i32):str{
+  l := 0;
+  r := hana.length()-1;
+  while (l <= r) {
+    mid : i32 = (l+r) / 2;
+    curr := hana[mid];
+    u := hex2dec(curr.slice(0,4))+0x20000;
+    if (u == unic){
+      return curr;
+    }else if (u < unic){
+      l = mid + 1;
+    }else{
+      r = mid - 1;
+    }
+  }
+  return unif[0];
+}
+
+func draw_unif(unic:i32){
+  s := find_unif(unic);
+  if (s == unif[0]) s = find_hana(unic);
+
+  pix := arr.make({16,16,4}, 255 as u8);
+  col := 4;
+  if (s.length()==37) col = 2;
+  for (i := 0; i < s.length()-5; i+=2){
+    q := hex2dec(s.slice(i+5,i+7));
+    for (j := 0; j < 8; j++){
+      v := ((q>>(7-j))&1)*255;
+      pix[i/col,(i%col)*4+j,0]=v;
+      pix[i/col,(i%col)*4+j,1]=v;
+      pix[i/col,(i%col)*4+j,2]=v;
+    }
+  }
+  unir.write_pixels(pix);
+}
+
+func ocr():list[i32]{
+  src := roi.read_pixels();
+  gray := img.convert[u8,3,u8,2](src, img.COLOR_RGB_GRAY)
+  bytes := list[u8]{}
+  for (i := 0; i < 2304; i++) bytes.push(gray[i])
+  res := str.decode(req.http(req.Request{
+    method:"POST",
+    url:"http://127.0.0.1:8765/?k=9&enc=dec",
+    body:bytes,
+  }).body,"utf-8");
+  // io.println(res)
+  cand := list[i32]{};
+  LL := exch.decode[exch.JSON](res).data as list[exch.JSON];
+  if (LL.length()){
+    L := LL[0].data as list[exch.JSON];
+    for (i := 0; i < L.length(); i++){
+      cand.push((L[i].data as dict[str,exch.JSON])["char"].data as f32 as i32);
+    }
+  }
+  return cand;
+}
+
+func ccl(){
+  img.label_blobs(mdat, lbl);
+  for (k := 1; k < 16; k++){
+    n := 0;
+    xm := 192;
+    ym := 192;
+    xM := 0;
+    yM := 0;
+    cx := 0.0;
+    cy := 0.0;
+    for (i := 0; i < 192; i++){
+      for (j := 0; j < 192; j++){
+        if (lbl[i,j] == k){
+          n++;
+          xm <?= j;
+          ym <?= i;
+          xM >?= j;
+          yM >?= i;
+          cx += i;
+          cy += j;
+        }
+      }
+    }
+    if (n == 0) break;
+    cx /= n;
+    cy /= n;
+    ok := 1;
+    if (math.hypot(cx-96,cy-96)>72) ok = 0;
+    if (xm < 4) ok = 0;
+    if (ym < 4) ok = 0;
+    if (xM > 188) ok = 0;
+    if (yM > 188) ok = 0;
+    if (n < 64) ok = 0;
+    if (!ok){
+      for (i := 0; i < 192; i++){
+        for (j := 0; j < 192; j++){
+          if (lbl[i,j] == k){
+            mdat[i,j] = 127
+          }
+        }
+      }
+    } 
+  }
+}
+
+func calc_mask(){
+  src := roj.read_pixels();
+  inv := img.convert[u8,3,u8,3](src,img.COLOR_INVERT);
+  img.convert[u8,3,u8,2](inv, img.COLOR_RGB_GRAY, mdat);
+
+  img.threshold(mdat, 128, img.THRESH_AUTO);
+
+  img.morphology(mdat, 3, img.MORPH_DILATE|img.NORM_L2, mdat);
+  ccl();
+  img.convert(mdat, img.COLOR_COPY, src);
+  mask.write_pixels(src);
+}
+
+func app_mask(){
+  dil := img.morphology(mdat, 2, img.MORPH_DILATE|img.NORM_L2);
+  img.threshold(dil, 150, img.THRESH_BINARY);
+
+  kern := arr[f32,2]{0.0625, 0.25, 0.375, 0.25, 0.0625;};
+  blur := img.convolve(dil, kern, img.BORDER_COPY);
+  kern.reshape(kern.shape().yx);
+  img.convolve(blur, kern, img.BORDER_COPY, blur);
+
+  src := roj.read_pixels();
+  for (i := 0; i < 192; i++){
+    for (j := 0; j < 192; j++){
+      t := 1.0-blur[i,j]/255.0;
+      src[i,j,0] = src[i,j,0]*(1-t)+230.0*t;
+      src[i,j,1] = src[i,j,1]*(1-t)+220.0*t;
+      src[i,j,2] = src[i,j,2]*(1-t)+210.0*t;
+    }
+  }
+  clr.write_pixels(src);
+}
+
+
+state := 0;
+sel_unic := 0;
+cand := list[i32]{};
+A_page := 0;
+A_x := 0.;
+A_y := 0.;
+B_page := 0;
+B_x := 0.;
+B_y := 0.;
+prv_id := "";
+
+func put_roj(x:f32,y:f32){
+  B_page = p;
+  B_x = (x+ofx)*2;
+  B_y = (y+ofy)*2;
+  drw.no_fill();
+  drw.stroke(0,0.5,0)
+  drw.rect(x-48,y-48,96,96);
+  roj.begin();
+  pg.draw(-(x+ofx)*2+96,-(y+ofy)*2+96)
+  roj.end();
+  roj.draw(0,0);
+  calc_mask();
+  mask.draw(0,200);
+  app_mask();
+  clr.draw(0,400);
+}
+
+func draw_sel(){
+  for (i := -5; i <= 5; i++){
+    ii := (cs_idx + i + chsh.length()) % chsh.length();
+    u := chsh[ii].slice(0,6) as i32;
+    draw_unif(u);
+    if (i < 0){
+      unir.draw(800+i*32,0,32,32)
+    }else if (i > 0){
+      unir.draw(832+i*32,0,32,32)
+    }else{
+      unir.draw(800,0,64,64);
+      drw.fill(1,0,0)
+      // drw.text(u,800,64)
+    }
+  }
+}
+
+for (p:=P0;p<=P1;p++){
+  pix := img.decode(io.read_file("data/dl/pages/%{(p as str).pad(5,"0",str.LEADING)}.png"));
+  ({H,W,chan}) := pix.shape();
+  pg := drw.create_graphics(W,H);
+  pg.write_pixels(pix)
+  
+  pg.draw(-ofx,-ofy,W/2,H/2);
+  drw.stroke_weight(2)
+  draw_sel();
+
+  sel_unic = chsh[cs_idx].slice(0,6) as i32;
+  draw_unif(sel_unic);
+  unir.draw(250,0,48,48)
+  io.println("NOW: %{p} %{cs_idx}")
+  while (1){
+
+    e := drw.poll();
+    if (e.type == win.KEY_PRESSED){
+      if (e.key == win.KEY_LARR || e.key == win.KEY_RARR || e.key == '.'){
+        if (e.key == win.KEY_LARR){
+          cs_idx = (cs_idx - 1 +  chsh.length()) % chsh.length();
+        }else if (e.key == win.KEY_RARR){
+          cs_idx = (cs_idx + 1) % chsh.length();
+        }else{
+          cs_idx = (cs_idx + 10) % chsh.length();
+        }
+        sel_unic = chsh[cs_idx].slice(0,6) as i32;
+        draw_unif(sel_unic);
+        unir.draw(250,0,48,48)
+        draw_sel();
+      }else if ((state == 0 && e.key == ' ')){
+        drw.no_fill();
+        drw.stroke(1,0,0)
+        drw.rect(mx-40,my-40,80,80);
+        if (state == 0){
+          put_roj(mx,my+64)
+        }
+        A_page = p;
+        A_x = (mx+ofx)*2;
+        A_y = (my+ofy)*2;
+        state = 1;
+      }else if (('1' <= e.key && e.key <= '9') || e.key == 'x'){
+        q := e.key-'1';
+        if (q < 0) q = 0;
+        if (q >= cand.length()){
+          sel_unic = -1;
+        }else{
+          sel_unic = cand[q];
+        }
+        draw_unif(sel_unic);
+        unir.draw(250,0,48,48)
+        
+      }else if (state == 1 && e.key == ' '){
+        put_roj(mx,my);
+      }else if (state == 1 && e.key == 'q'){
+        xi : i32 = mx;
+        yi : i32 = my-200;
+        mdat[yi-1,xi-1] = 0;
+        mdat[yi-1,xi] = 0;
+        mdat[yi+1,xi+1] = 0;
+        mdat[yi,xi-1] = 0;
+        mdat[yi,xi] = 0;
+        mdat[yi,xi+1] = 0;
+        mdat[yi+1,xi-1] = 0;
+        mdat[yi+1,xi] = 0;
+        mdat[yi+1,xi+1] = 0;
+        ccl();
+        src := arr.make({192,192,4},255 as u8)
+        img.convert(mdat, img.COLOR_COPY,src);
+        mask.write_pixels(src);
+        mask.draw(0,200);
+        app_mask();
+        clr.draw(0,400);
+      }else if (state == 1 && e.key == '`'){
+        xi : i32 = mx;
+        yi : i32 = my-200;
+        if (xi >= 0 && xi < 192 && yi >= 0 && yi < 192){
+          k := lbl[yi,xi];
+          v := mdat[yi,xi];
+          if (v){
+            for (i := 0; i < 192; i++){
+              for (j := 0; j < 192; j++){
+                if (lbl[i,j] == k){
+                  mdat[i,j] = (v==255)?127:255;
+                }
+              }
+            }
+            src := arr.make({192,192,4},255 as u8)
+            img.convert(mdat, img.COLOR_COPY,src);
+            // io.println(src)
+            mask.write_pixels(src);
+            mask.draw(0,200);
+            app_mask();
+            clr.draw(0,400);
+          }
+        }
+      }else if (e.key == 'r'){
+        state = 0;
+      }else if (state == 1 && e.key == 's'){
+        
+        id : str = ((time.stamp()*10) as str).split(".")[0];
+        comb.begin();
+        drw.background(0);
+        roi.draw(0,0);
+        draw_unif(sel_unic);
+        unir.draw(48,0)
+        roj.draw(0,48);
+        mask.draw(192,48);
+        clr.draw(384,48);
+        comb.end();
+        jn := '{"id":"%{id}","unicode":%{sel_unic},"A_page":%{A_page},"A_x":%{A_x},"A_y":%{A_y},"B_page":%{B_page},"B_x":%{B_x},"B_y":%{B_y}}'
+        io.write_file("%{folder}/"+id+".json",str.encode(jn,"utf-8"));
+        io.write_file("%{folder}/"+id+".png",img.encode("png",comb.read_pixels()));
+        state = 0;
+        cs_idx = (cs_idx + 1) % chsh.length();
+
+        sel_unic = chsh[cs_idx].slice(0,6) as i32;
+        draw_unif(sel_unic);
+        unir.draw(250,0,48,48)
+        draw_sel();
+        prv_id = id;
+      }else if (e.key == 13){
+        break;
+      }else if (e.key == win.KEY_UARR){
+        p-=2;
+        break;
+      }else if (e.key == 127){
+        io.println(sys.command("rm %{folder}/%{prv_id}.json",sys.STDOUT_INHERIT));
+        io.println(sys.command("rm %{folder}/%{prv_id}.png",sys.STDOUT_INHERIT));
+      }else if (e.key == 'o'){
+        cand = ocr();
+        for (i := 0; i < cand.length(); i++){
+          draw_unif(cand[i]);
+          unir.draw(1200+i*32,0,32,32);
+          drw.fill(1,0,1)
+          drw.text(i+1,1200+i*32,16);
+        }
+      }else{
+        // io.println(e.key)
+      }
+    
+    }else if (e.type == win.MOUSE_MOVED){
+      mx = e.x;
+      my = e.y;
+
+      if (state == 0){
+        sc := 80./48.
+        roi.begin();
+        drw.background(1,0,1)
+        pg.draw(-(mx+ofx-40)/sc,-(my+ofy-40)/sc,W/2/sc,H/2/sc)
+        roi.end();
+
+        roi.draw(200,0);
+      }
+    }
+  }
+}

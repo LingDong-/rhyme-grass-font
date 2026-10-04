@@ -1,0 +1,201 @@
+include "std/io"
+include "std/req"
+include "std/img"
+include "std/arr"
+include "std/list"
+include "std/str"
+include "std/exch"
+include "std/drw"
+include "std/win"
+include "std/math"
+include "std/time"
+include "std/sys"
+
+
+io.println("
+CONTROLS
+[LEFT/RIGHT ARR] prev/next cheatsheet candidate
+[U]              manually enter unicode
+[S]              save current label and move on
+[DOWN ARR]       next label
+");
+
+drw.size(800,800)
+
+unif := str.decode(io.read_file("data/dl/unifont.hex"),'utf-8').split("\n")
+hana := str.decode(io.read_file("data/gen/hanaminb.hex"),'utf-8').split("\n")
+chsh := str.decode(io.read_file("data/gen/cheatsheet.txt"),'utf-8').split("\n")
+cs_idx := 0;
+
+old := drw.create_graphics(576,240);
+unir := drw.create_graphics(16,16);
+
+func hex2dec(s:str):i32{
+  y := 0;
+  for (i := 0; i < s.length(); i++){
+    y *= 16;
+    x := 0;
+    if (s[i]>='a'){
+      x = 10+(s[i]-'a')
+    }else if (s[i]>='A'){
+      x = 10+(s[i]-'A')
+    }else{
+      x = s[i]-'0'
+    }
+    y += x;
+  }
+  return y;
+}
+
+func find_unif(unic:i32):str{
+  l := 0;
+  r := unif.length()-1;
+  while (l <= r) {
+    mid : i32 = (l+r) / 2;
+    curr := unif[mid];
+    u := hex2dec(curr.slice(0,4));
+    if (u == unic){
+      return curr;
+    }else if (u < unic){
+      l = mid + 1;
+    }else{
+      r = mid - 1;
+    }
+  }
+  return unif[0];
+}
+
+func find_hana(unic:i32):str{
+  l := 0;
+  r := hana.length()-1;
+  while (l <= r) {
+    mid : i32 = (l+r) / 2;
+    curr := hana[mid];
+    u := hex2dec(curr.slice(0,4))+0x20000;
+    if (u == unic){
+      return curr;
+    }else if (u < unic){
+      l = mid + 1;
+    }else{
+      r = mid - 1;
+    }
+  }
+  return unif[0];
+}
+
+func draw_unif(unic:i32){
+  s := find_unif(unic);
+  if (s == unif[0]) s = find_hana(unic);
+
+  pix := arr.make({16,16,4}, 255 as u8);
+  col := 4;
+  if (s.length()==37) col = 2;
+  for (i := 0; i < s.length()-5; i+=2){
+    q := hex2dec(s.slice(i+5,i+7));
+    for (j := 0; j < 8; j++){
+      v := ((q>>(7-j))&1)*255;
+      pix[i/col,(i%col)*4+j,0]=v;
+      pix[i/col,(i%col)*4+j,1]=v;
+      pix[i/col,(i%col)*4+j,2]=v;
+    }
+  }
+  unir.write_pixels(pix);
+}
+
+func draw_sel(){
+  for (i := -6; i <= 6; i++){
+    ii := (cs_idx + i + chsh.length()) % chsh.length();
+    u := chsh[ii].slice(0,6) as i32;
+    draw_unif(u);
+    if (i < 0){
+      unir.draw(300+i*32,0,32,32)
+    }else if (i > 0){
+      unir.draw(332+i*32,0,32,32)
+    }else{
+      unir.draw(300,0,64,64);
+      drw.fill(1,0,0)
+    }
+  }
+}
+
+fns := str.decode(sys.command("ls cybt-dataset/labels-chr/*.json",sys.STDOUT_PIPE)[1],'utf-8').split("\n")
+
+
+sel_unic := 0;
+
+for (i := 0; i < fns.length()-1; i++){
+  jn := (exch.decode[exch.JSON](str.decode(io.read_file(fns[i]),"utf-8")).data) as dict[str,exch.JSON];
+  u := jn["unicode"].data as f32 as i32;
+
+  id := jn["id"].data as str;
+  if (u != -1){
+    cs_idx ++;
+    continue;
+  }
+
+  old.write_pixels(img.decode(io.read_file("cybt-dataset/labels-chr/%{id}.png")));
+
+  ax := jn["A_x"].data as f32
+  ay := jn["A_y"].data as f32
+  p := jn["A_page"].data as f32 as i32;
+
+  pix := img.decode(io.read_file("data/dl/pages/%{(p as str).pad(5,"0",str.LEADING)}.png"));
+  ({H,W,chan}) := pix.shape();
+  pg := drw.create_graphics(W,H);
+  pg.write_pixels(pix)
+
+  pg.begin();
+  drw.stroke(1,0,0);
+  drw.stroke_weight(12);
+  drw.no_fill();
+  drw.rect(ax-96,ay-96,192,192);
+  pg.end();
+
+  pg.draw(0,200,W/4,H/4);
+
+  old.draw(0,0);
+
+  sel_unic = chsh[cs_idx].slice(0,6) as i32;
+  draw_unif(sel_unic);
+  unir.draw(0,250,64,64)
+  draw_sel();
+  
+  while (1){
+    e := drw.poll();
+    if (e.type == win.KEY_PRESSED){
+      if (e.key == win.KEY_LARR || e.key == win.KEY_RARR || e.key == '.'){
+        if (e.key == win.KEY_LARR){
+          cs_idx = (cs_idx - 1 +  chsh.length()) % chsh.length();
+        }else if (e.key == win.KEY_RARR){
+          cs_idx = (cs_idx + 1) % chsh.length();
+        }else{
+          cs_idx = (cs_idx + 10) % chsh.length();
+        }
+        sel_unic = chsh[cs_idx].slice(0,6) as i32;
+        draw_unif(sel_unic);
+        unir.draw(0,250,64,64)
+        draw_sel();
+      }else if (e.key == 'u'){
+        [st,re] := sys.command("osascript -e 'display dialog \"enter unicode (dec):\" default answer \"\"'",sys.STDOUT_PIPE);
+        res := str.decode(re,"utf-8");
+        if (st == 0){
+          u := res.slice(34,res.length()) as i32
+          sel_unic = u;
+          draw_unif(sel_unic);
+          unir.draw(0,250,64,64)
+        }
+      }else if (e.key == 's'){
+        // jn["unicode"] = exch.JSON{data:(sel_unic as f32)},
+        jn["unicode"].data = sel_unic as f32;
+        txt := exch.encode[exch.JSON](exch.JSON{data:jn});
+        io.println(txt);
+        io.write_file("cybt-dataset/labels-chr/"+id+".json",txt.encode("utf-8"));
+        cs_idx++;
+        break;
+      }else if (e.key == win.KEY_DARR){
+        break;
+      }
+    }
+  }
+}
+

@@ -1,0 +1,222 @@
+include "std/io"
+include "std/req"
+include "std/img"
+include "std/arr"
+include "std/list"
+include "std/str"
+include "std/exch"
+include "std/drw"
+include "std/win"
+include "std/math"
+include "std/time"
+include "std/sys"
+
+io.println("
+CONTROLS
+[Q]       mask image eraser tool (hold)
+[`]       mask image flood tool
+[S]       save current mask and move on
+[ENTER]   next label
+[F]       reveal label in Finder.app
+");
+
+mx := 0.0;
+my := 0.0;
+drw.size(1000,800)
+
+tag := sys.argv()[0];
+want := sys.argv()[1] as i32;
+
+roj := drw.create_graphics(192,192);
+unir := drw.create_graphics(16,16);
+mask := drw.create_graphics(192,192);
+clr := drw.create_graphics(192,192);
+comb := drw.create_graphics(576,240);
+old := drw.create_graphics(576,240);
+mdat := arr.make({192,192}, 0 as u8)
+lbl := arr.make({192,192}, 0 as i32)
+
+fns := str.decode(sys.command("ls cybt-dataset/labels-%{tag}/*.json",sys.STDOUT_PIPE)[1],'utf-8').split("\n")
+
+
+func ccl(){
+  img.label_blobs(mdat, lbl);
+  for (k := 1; k < 16; k++){
+    n := 0;
+    xm := 192;
+    ym := 192;
+    xM := 0;
+    yM := 0;
+    cx := 0.0;
+    cy := 0.0;
+    for (i := 0; i < 192; i++){
+      for (j := 0; j < 192; j++){
+        if (lbl[i,j] == k){
+          n++;
+          xm <?= j;
+          ym <?= i;
+          xM >?= j;
+          yM >?= i;
+          cx += i;
+          cy += j;
+        }
+      }
+    }
+    if (n == 0) break;
+    cx /= n;
+    cy /= n;
+    ok := 1;
+    if (math.hypot(cx-96,cy-96)>72) ok = 0;
+    if (xm < 4) ok = 0;
+    if (ym < 4) ok = 0;
+    if (xM > 188) ok = 0;
+    if (yM > 188) ok = 0;
+    if (n < 64) ok = 0;
+    if (!ok){
+      for (i := 0; i < 192; i++){
+        for (j := 0; j < 192; j++){
+          if (lbl[i,j] == k){
+            mdat[i,j] = 127
+          }
+        }
+      }
+    } 
+  }
+}
+
+
+func calc_mask(){
+  src := roj.read_pixels();
+  inv := img.convert[u8,3,u8,3](src,img.COLOR_INVERT);
+  img.convert[u8,3,u8,2](inv, img.COLOR_RGB_GRAY, mdat);
+
+  img.threshold(mdat, 128, img.THRESH_AUTO);
+
+  img.morphology(mdat, 3, img.MORPH_DILATE|img.NORM_L2, mdat);
+  ccl();
+  img.convert(mdat, img.COLOR_COPY, src);
+  mask.write_pixels(src);
+}
+
+func app_mask(){
+  dil := img.morphology(mdat, 2, img.MORPH_DILATE|img.NORM_L2);
+  img.threshold(dil, 150, img.THRESH_BINARY);
+
+  kern := arr[f32,2]{0.0625, 0.25, 0.375, 0.25, 0.0625;};
+  blur := img.convolve(dil, kern, img.BORDER_COPY);
+  kern.reshape(kern.shape().yx);
+  img.convolve(blur, kern, img.BORDER_COPY, blur);
+
+  src := roj.read_pixels();
+  for (i := 0; i < 192; i++){
+    for (j := 0; j < 192; j++){
+      t := 1.0-blur[i,j]/255.0;
+      src[i,j,0] = src[i,j,0]*(1-t)+230.0*t;
+      src[i,j,1] = src[i,j,1]*(1-t)+220.0*t;
+      src[i,j,2] = src[i,j,2]*(1-t)+210.0*t;
+    }
+  }
+  clr.write_pixels(src);
+}
+
+for (i := 0; i < fns.length()-1; i++){
+  jn := (exch.decode[exch.JSON](str.decode(io.read_file(fns[i]),"utf-8")).data) as dict[str,exch.JSON];
+  u := jn["unicode"].data as f32 as i32;
+  if (u != want){
+    continue;
+  }
+  id := jn["id"].data as str;
+
+  
+  old.write_pixels(img.decode(io.read_file("cybt-dataset/labels-%{tag}/%{id}.png")));
+
+
+  bx := jn["B_x"].data as f32
+  by := jn["B_y"].data as f32
+  p := jn["B_page"].data as f32 as i32;
+
+  pix := img.decode(io.read_file("data/dl/pages/%{(p as str).pad(5,"0",str.LEADING)}.png"));
+  ({H,W,chan}) := pix.shape();
+  pg := drw.create_graphics(W,H);
+  pg.write_pixels(pix)
+
+  pg.draw(200,200,W/4,H/4);
+
+  old.draw(200,0);
+
+  roj.begin();
+  pg.draw(-bx+96,-by+96)
+  roj.end();
+  roj.draw(0,0);
+  calc_mask();
+  mask.draw(0,200);
+  app_mask();
+  clr.draw(0,400);
+
+
+  while (1){
+    e := drw.poll();
+    if (e.type == win.KEY_PRESSED){
+      if (e.key == 'q'){
+        xi : i32 = mx;
+        yi : i32 = my-200;
+        mdat[yi-1,xi-1] = 0;
+        mdat[yi-1,xi] = 0;
+        mdat[yi+1,xi+1] = 0;
+        mdat[yi,xi-1] = 0;
+        mdat[yi,xi] = 0;
+        mdat[yi,xi+1] = 0;
+        mdat[yi+1,xi-1] = 0;
+        mdat[yi+1,xi] = 0;
+        mdat[yi+1,xi+1] = 0;
+        ccl();
+        src := arr.make({192,192,4},255 as u8)
+        img.convert(mdat, img.COLOR_COPY,src);
+        mask.write_pixels(src);
+        mask.draw(0,200);
+        app_mask();
+        clr.draw(0,400);
+      }else if (e.key == '`'){
+        xi : i32 = mx;
+        yi : i32 = my-200;
+        if (xi >= 0 && xi < 192 && yi >= 0 && yi < 192){
+          k := lbl[yi,xi];
+          v := mdat[yi,xi];
+          if (v){
+            for (i := 0; i < 192; i++){
+              for (j := 0; j < 192; j++){
+                if (lbl[i,j] == k){
+                  mdat[i,j] = (v==255)?127:255;
+                }
+              }
+            }
+            src := arr.make({192,192,4},255 as u8)
+            img.convert(mdat, img.COLOR_COPY,src);
+            mask.write_pixels(src);
+            mask.draw(0,200);
+            app_mask();
+            clr.draw(0,400);
+          }
+        }
+      }else if (e.key == 's'){
+        comb.begin();
+        old.draw(0,0);
+        roj.draw(0,48);
+        mask.draw(192,48);
+        clr.draw(384,48);
+        comb.end();
+        io.write_file("cybt-dataset/labels-%{tag}/"+id+".png",img.encode("png",comb.read_pixels()));
+        break;
+      }else if (e.key == 'f'){
+        io.println(sys.command("open -R cybt-dataset/labels-%{tag}/%{id}.json",sys.STDOUT_INHERIT));
+        
+      }else if (e.key == 13){
+        break;
+      }
+    }else if (e.type == win.MOUSE_MOVED){
+      mx = e.x;
+      my = e.y;
+    }
+  }
+}
+

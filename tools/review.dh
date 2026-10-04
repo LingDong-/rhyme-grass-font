@@ -1,0 +1,171 @@
+include "std/io"
+include "std/req"
+include "std/img"
+include "std/arr"
+include "std/list"
+include "std/str"
+include "std/exch"
+include "std/drw"
+include "std/win"
+include "std/math"
+include "std/time"
+include "std/sys"
+
+io.println("
+CONTROLS
+[UP ARR/ENTER]   prev/next page
+");
+
+
+P0 := 11
+P1 := 223
+SCL := 2
+
+mx := 0.0;
+my := 0.0;
+drw.size(1600,1024)
+
+ofx := -150;
+ofy := 200;
+
+roi := drw.create_graphics(48,48);
+roj := drw.create_graphics(192,192);
+unir := drw.create_graphics(16,16);
+mask := drw.create_graphics(192,192);
+clr := drw.create_graphics(192,192);
+comb := drw.create_graphics(576,240);
+mdat := arr.make({192,192}, 0 as u8)
+lbl := arr.make({192,192}, 0 as i32)
+
+fns := str.decode(sys.command("ls cybt-dataset/labels-chr/*.json",sys.STDOUT_PIPE)[1],'utf-8').split("\n")
+jns := list[dict[str,exch.JSON]]{};
+for (i := 0; i < fns.length()-1; i++){
+  jns.push((exch.decode[exch.JSON](str.decode(io.read_file(fns[i]),"utf-8")).data) as dict[str,exch.JSON]);
+}
+
+unif := str.decode(io.read_file("data/dl/unifont.hex"),'utf-8').split("\n")
+hana := str.decode(io.read_file("data/gen/hanaminb.hex"),'utf-8').split("\n")
+
+
+func hex2dec(s:str):i32{
+  y := 0;
+  for (i := 0; i < s.length(); i++){
+    y *= 16;
+    x := 0;
+    if (s[i]>='a'){
+      x = 10+(s[i]-'a')
+    }else if (s[i]>='A'){
+      x = 10+(s[i]-'A')
+    }else{
+      x = s[i]-'0'
+    }
+    y += x;
+  }
+  return y;
+}
+
+func find_unif(unic:i32):str{
+  l := 0;
+  r := unif.length()-1;
+  while (l <= r) {
+    mid : i32 = (l+r) / 2;
+    curr := unif[mid];
+    u := hex2dec(curr.slice(0,4));
+    if (u == unic){
+      return curr;
+    }else if (u < unic){
+      l = mid + 1;
+    }else{
+      r = mid - 1;
+    }
+  }
+  return unif[0];
+}
+
+func find_hana(unic:i32):str{
+  l := 0;
+  r := hana.length()-1;
+  while (l <= r) {
+    mid : i32 = (l+r) / 2;
+    curr := hana[mid];
+    u := hex2dec(curr.slice(0,4))+0x20000;
+    if (u == unic){
+      return curr;
+    }else if (u < unic){
+      l = mid + 1;
+    }else{
+      r = mid - 1;
+    }
+  }
+  return unif[0];
+}
+
+func draw_unif(unic:i32){
+  s := find_unif(unic);
+  if (s == unif[0]) s = find_hana(unic);
+
+  pix := arr.make({16,16,4}, 255 as u8);
+  col := 4;
+  if (s.length()==37) col = 2;
+  for (i := 0; i < s.length()-5; i+=2){
+    q := hex2dec(s.slice(i+5,i+7));
+    for (j := 0; j < 8; j++){
+      v := ((q>>(7-j))&1)*255;
+      pix[i/col,(i%col)*4+j,0]=v;
+      pix[i/col,(i%col)*4+j,1]=v;
+      pix[i/col,(i%col)*4+j,2]=v;
+    }
+  }
+  unir.write_pixels(pix);
+}
+
+for (p:=P0;p<=P1;p++){
+  pix := img.decode(io.read_file("data/dl/pages/%{(p as str).pad(5,"0",str.LEADING)}.png"));
+  ({H,W,chan}) := pix.shape();
+  pg := drw.create_graphics(W,H);
+  pg.write_pixels(pix)
+  
+
+  pg.begin();
+  for (i := 0; i < jns.length(); i++){
+    ap : i32 = jns[i]["A_page"].data as f32;
+    if (ap != p) continue;
+
+    ax := jns[i]["A_x"].data as f32
+    ay := jns[i]["A_y"].data as f32
+    u : i32 = jns[i]["unicode"].data as f32
+    // if (u == -1){
+      drw.no_fill();
+      drw.stroke(1,0,1);
+      drw.stroke_weight(4);
+      drw.rect(ax-40,ay-40,80,80);
+      draw_unif(u);
+      unir.draw(ax+40,ay,48,48)
+    // }
+  }
+  pg.end();
+
+  pg.draw(-ofx,-ofy,W/2,H/2);
+  drw.stroke_weight(2)
+
+
+
+  while (1){
+
+    e := drw.poll();
+    if (e.type == win.KEY_PRESSED){
+      if (e.key == 13){
+        break;
+      }else if (e.key == win.KEY_UARR){
+        p-=2;
+        break;
+      }else{
+        io.println(e.key)
+      }
+    }else if (e.type == win.MOUSE_MOVED){
+      mx = e.x;
+      my = e.y;
+
+    }
+  }
+}

@@ -1,0 +1,114 @@
+include "std/io"
+include "std/req"
+include "std/img"
+include "std/arr"
+include "std/list"
+include "std/str"
+include "std/exch"
+include "std/drw"
+include "std/win"
+include "std/math"
+include "std/time"
+include "std/sys"
+include "std/dict"
+
+
+fns := str.decode(sys.command("ls cybt-dataset/labels-chr/*.json",sys.STDOUT_PIPE)[1],'utf-8').split("\n")
+jns := list[dict[str,exch.JSON]]{};
+for (i := 0; i < fns.length()-1; i++){
+  jns.push((exch.decode[exch.JSON](str.decode(io.read_file(fns[i]),"utf-8")).data) as dict[str,exch.JSON]);
+}
+
+
+pg := drw.create_graphics(4096,4096);
+thumb := drw.create_graphics(32,32);
+tdat := arr.make({32,32,4},255 as u8)
+
+
+pg.begin();
+drw.background(0);
+pg.end();
+
+
+for (i := 0; i < jns.length(); i++){
+  if (i % 1000 == 0) io.println("%{i}/%{jns.length()}");
+  id := jns[i]["id"].data as str;
+  u : i32 = jns[i]["unicode"].data as f32;
+
+  pix := img.decode(io.read_file("cybt-dataset/labels-chr/%{id}.png"));
+  for (j := 0; j < 32; j++){
+    for (k := 0; k < 32; k++){
+
+      tdat[j,k,0] = pix[j*6+48,k*6+384,0]
+      tdat[j,k,1] = pix[j*6+48,k*6+384,1]
+      tdat[j,k,2] = pix[j*6+48,k*6+384,2]
+    }
+  }
+  thumb.write_pixels(tdat);
+
+  pg.begin();
+  thumb.draw((i % 128)*32,(i / 128)*32);
+
+  pg.end();
+
+}
+
+io.write_file("data/gen/chart.png",img.encode("png",pg.read_pixels()));
+
+
+
+
+
+
+
+cover := arr.make({512,256,4},0 as u8);
+for (i := 0; i < 512; i++){
+  for (j := 0; j < 256; j++) cover[i,j,3]=255;
+}
+
+func putat(u:i32,v:vec[u8,4]){
+  if (0x2f00 <= u && u <= 0xffff){
+    row := (u-0) / 256;
+    col := (u-0) % 256;
+    img.set(cover,col,row,v)
+  }else if (0x20000 <= u && u <= 0x2ffff){
+    row := (u-0x20000) / 256 + 256;
+    col := (u-0x20000) % 256;
+    img.set(cover,col,row,v)
+  }
+}
+
+
+
+
+sj := (exch.decode[exch.JSON](str.decode(io.read_file("data/gen/surjection.json"),"utf-8")).data) as dict[str,exch.JSON]
+sk := sj.keys();
+for (i := 0; i < sk.length(); i++){
+  l := (sj[sk[i]].data as list[exch.JSON]);
+  for (j := 0; j < l.length(); j++){
+    u := str.ord(l[j].data as str);
+    // io.println([u,l[j].data as str])
+    putat(u,{255,255,0,255});
+  }
+}
+
+cns := str.decode(sys.command("ls data/gen/contours-syn/*.json",sys.STDOUT_PIPE)[1],'utf-8').split("\n")
+for (i := 0; i < cns.length()-1; i++){
+  ss := cns[i].split("/");
+  fid := ss[ss.length()-1].split(".")[0];
+  u := fid as i32;
+  io.println(u)
+  putat(u,{0,255,0,255});
+}
+
+for (i := 0; i < jns.length(); i++){
+  id := jns[i]["id"].data as str;
+  u : i32 = jns[i]["unicode"].data as f32;
+  if (u<0)continue;
+  putat(u,{255,255,255,255});  
+
+}
+
+io.write_file("data/gen/coverage.png",img.encode("png",cover));
+
+

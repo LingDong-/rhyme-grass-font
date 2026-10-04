@@ -1,0 +1,12 @@
+.DS_Store
+*/.DS_Store
+**/.DS_Store
+cybt-dataset/
+data/dl/
+data/gen/
+!data/gen/.gitkeep
+!data/dl/.gitkeep
+*.ttf
+*.zip
+site/
+!site/.gitkeep

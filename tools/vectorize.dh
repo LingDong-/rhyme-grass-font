@@ -1,0 +1,156 @@
+include "std/img"
+include "std/io"
+include "std/drw"
+include "std/geom"
+include "std/arr"
+include "std/list"
+include "std/exch"
+include "std/str"
+include "std/dict"
+include "std/sys"
+include "std/math"
+
+argv := sys.argv();
+
+tag    := (argv.length() > 1) ? argv[1] : "chr"
+which  := (argv.length() > 2) ? argv[2] : "*"
+
+pth_json := "cybt-dataset/labels-%{tag}"
+pth_png  := "cybt-dataset/labels-%{tag}"
+pth_out  := "data/gen/contours-%{tag}"
+
+fns := str.decode(sys.command("ls %{pth_json}/%{which}.json",sys.STDOUT_PIPE)[1],'utf-8').split("\n")
+// fns := str.decode(sys.command("find %{pth_json}/%{which}.json -maxdepth 1 -type f -mmin -10",sys.STDOUT_PIPE)[1],'utf-8').split("\n")
+
+jns := list[dict[str,exch.JSON]]{};
+for (i := 0; i < fns.length()-1; i++){
+  jns.push((exch.decode[exch.JSON](str.decode(io.read_file(fns[i]),"utf-8")).data) as dict[str,exch.JSON]);
+}
+
+
+func draw_polys(polys:list[list[vec[f32,2]]]){
+  drw.begin_shape();
+  for (i := 0; i < polys.length(); i++){
+    for (j := 0; j < polys[i].length(); j++){
+      drw.vertex(...polys[i][j].xy);
+    }
+    drw.next_contour(0);
+  }
+  drw.end_shape();
+  // for (i := 0; i < polys.length(); i++){
+  //   for (j := 0; j < polys[i].length(); j++){
+  //     drw.circle(...polys[i][j].xy,2);
+  //   }
+  // }
+}
+
+W:=576
+drw.size(W*3,W)
+
+
+func proc(fid:str){
+  fn := jns[i]["unicode"].data as f32 as i32
+  if (fn == -1) return;
+
+  drw.background(1);
+
+  pixels := img.decode(io.read_file("%{pth_png}/%{fid}.png"));
+  pg0 := drw.create_graphics(...(pixels.shape().yx));
+  pg0.write_pixels(pixels);
+  pg1 := drw.create_graphics(W,W);
+  pg1.begin();
+  pg0.draw(-384*W/192,-48*W/192,576*W/192,240*W/192);
+  pg1.end();
+  pg1.draw(0,0)
+
+  src := pg1.read_pixels();
+  inv := img.convert[u8,3,u8,3](src,img.COLOR_INVERT);
+  gray := img.convert[u8,3,u8,2](inv, img.COLOR_RGB_GRAY);
+
+  kern := arr[f32,2]{0.0625, 0.25, 0.375, 0.25, 0.0625;};
+  blur := img.convolve(gray, kern, img.BORDER_COPY);
+  kern.reshape(kern.shape().yx);
+  img.convolve(blur, kern, img.BORDER_COPY, blur);
+
+  
+  img.convert(blur, img.COLOR_COPY, src);
+  pg1.write_pixels(src);
+  pg1.draw(W,0)
+
+  img.threshold(blur, 8, img.THRESH_ADAPTIVE|12);
+
+
+  layer := arr.make({W,W}, 0 as u8);
+  cx := 0.0;
+  cy := 0.0;
+  xm := math.INF;
+  ym := math.INF;
+  xM := 0.;
+  yM := 0.;
+  n := 0.0;
+  for (i := 2; i < W; i++){
+    for (j := 2; j < W; j++){
+      r := (blur[i,j] as f32)/255.0;
+      if (r > 0.5){
+        layer[i,j] = 1;
+        cx += j;
+        cy += i;
+        xm <?= j;
+        ym <?= i;
+        xM >?= j;
+        yM >?= i;
+        n += 1.0
+      }
+    }
+  }
+  cx /= n;
+  cy /= n;
+  cx = cx*0.5 + (xm+xM)*0.25;
+  cy = cy*0.5 + (ym+yM)*0.25;
+
+  contours := img.find_contours(layer)
+  for (i := 0; i < contours.length(); i++){
+    contours[i] = geom.poly_simplify(contours[i],0.75);
+    for (j := 0; j < contours[i].length(); j++){
+      ({x,y}) := contours[i][j];
+      contours[i][j] = {x-cx+W/2,y-cy+W/2}
+    }
+  }
+
+  while(1){
+    drw.no_stroke();
+    drw.fill(0);
+    drw.push_matrix();
+    drw.translate(W*2,0);
+    draw_polys(contours);
+    drw.pop_matrix();
+    e := drw.poll();
+    // if (e.type==win.KEY_PRESSED&&e.key==' '){
+      break;
+    // }
+  }
+
+  Jk := exch.JSON{data:list[exch.JSON]{}};
+  for (i := 0; i < contours.length(); i++){
+    Jki := exch.JSON{data:list[exch.JSON]{}};
+    for (j := 0; j < contours[i].length(); j++){
+      (Jki.data as list[exch.JSON]).push(exch.JSON{data:list[exch.JSON]{
+        exch.JSON{data:contours[i][j].x},
+        exch.JSON{data:contours[i][j].y},
+      }});
+    }
+    (Jk.data as list[exch.JSON]).push(Jki);
+  }
+
+  
+  io.write_file("%{pth_out}/%{fn}.json",str.encode(exch.encode[exch.JSON](Jk),"utf-8"));
+}
+
+for (i:=0;i<jns.length();i++){
+  if (i % 100 == 0){
+    io.println("%{i}/%{jns.length()}");
+  }
+  fid := jns[i]["id"].data as str;
+  proc(fid);
+  sys.gc();
+}

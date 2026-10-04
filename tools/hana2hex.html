@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
+upload HanaMinB.ttf to be converted to unifont.hex format<br>
+<input type="file" id="f">
+<div id="status"></div>
+<script>
+const BATCH = 512, COLS = 64, THRESH = 40;
+const g = document.createElement('canvas'); g.width = g.height = 16;
+const gc = g.getContext('2d');
+const lines = [];
+
+function raster(glyph, upem) {
+  const b = glyph.getBoundingBox();
+  const w = b.x2 - b.x1, h = b.y2 - b.y1;
+  if (!(w > 0 && h > 0)) return null;
+  const s = 16 / Math.max(w, h);
+  gc.clearRect(0, 0, 16, 16);
+  glyph.getPath(-b.x1 * s + (16 - w * s) / 2,
+                 b.y2 * s + (16 - h * s) / 2,
+                 s * upem).draw(gc);
+  const d = gc.getImageData(0, 0, 16, 16).data;
+  const out = gc.createImageData(16, 16);
+  let hex = '';
+  for (let y = 0; y < 16; y++) {
+    let row = 0;
+    for (let x = 0; x < 16; x++) {
+      const i = (y * 16 + x) * 4;
+      if (d[i + 3] > THRESH) { row |= 0x8000 >> x; out.data[i + 3] = 255; }
+    }
+    hex += row.toString(16).toUpperCase().padStart(4, '0');
+  }
+  return [hex, out];
+}
+
+f.onchange = async () => {
+  const font = opentype.parse(await f.files[0].arrayBuffer(), { lowMemory: true });
+  const map = font.tables.cmap.glyphIndexMap;
+  const cps = Object.keys(map).map(Number).filter(c => c > 0xFFFF).sort((a, b) => a - b);
+  for (let i = 0; i < cps.length; i += BATCH) {
+    const batch = cps.slice(i, i + BATCH);
+    const sheet = document.createElement('canvas');
+    sheet.width = COLS * 16; sheet.height = Math.ceil(batch.length / COLS) * 16;
+    const sc = sheet.getContext('2d');
+    batch.forEach((cp, j) => {
+      const r = raster(font.glyphs.get(map[cp]), font.unitsPerEm);
+      if (!r) return;
+      lines.push(cp.toString(16).toUpperCase().slice(-4) + ':' + r[0]);
+      sc.putImageData(r[1], (j % COLS) * 16, Math.floor(j / COLS) * 16);
+    });
+    document.body.appendChild(sheet);
+    status.textContent = Math.min(i + BATCH, cps.length) + ' / ' + cps.length;
+    await new Promise(r => setTimeout(r,20));
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([lines.join('\n') + '\n']));
+  a.download = 'hanaminb.hex';
+  a.textContent = 'download hanaminb.hex';
+  document.body.appendChild(a);
+};
+</script>
