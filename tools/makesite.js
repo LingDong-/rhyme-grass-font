@@ -77,7 +77,7 @@ var lorem = ${JSON.stringify(lorem)};
 	}
 
 	function update_ta(){
-		document.getElementById("ta").innerHTML = lorem[document.getElementById("sel-txt").value];
+		document.getElementById("ta").value = lorem[document.getElementById("sel-txt").value];
 		update_r();
 	}
 	function update_fs(){
@@ -92,7 +92,7 @@ var lorem = ${JSON.stringify(lorem)};
   document.getElementById("sel-txt").onchange = update_ta;
 	document.getElementById("sel-fs").onchange = update_fs;
 	document.getElementById("sel-bg").onchange = function(){document.getElementById("render").style.background=document.getElementById("sel-bg").value}
-	document.getElementById("ta").onkeypress=document.getElementById("ta").onchange=update_r
+	document.getElementById("ta").onkeyup=document.getElementById("ta").onchange=update_r
 	document.getElementById("btn-render").onclick = update_r;
 
 	document.getElementById("render").addEventListener('wheel', (e)=> {
