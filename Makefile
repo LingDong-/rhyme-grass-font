@@ -50,8 +50,10 @@ reassign: gen.cheatsheet
 	dither -xvt c tools/reassign.dh
 
 vectorize.chr:
+	mkdir -p data/gen/contours-chr
 	dither -xvt c tools/vectorize.dh chr $(DATAID)
 vectorize.rad:
+	mkdir -p data/gen/contours-rad
 	dither -xvt c tools/vectorize.dh rad $(DATAID)
 
 gen.cheatsheet:
@@ -61,6 +63,7 @@ gen.surjection:
 gen.synthplan:
 	node tools/synthplan.js
 gen.synth:
+	mkdir -p data/gen/contours-syn
 	node tools/synthesize.js
 
 gen.chart:

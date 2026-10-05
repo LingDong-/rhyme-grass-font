@@ -6,7 +6,7 @@ Authentic [cursive](https://en.wikipedia.org/wiki/Cursive_script_(East_Asia)) ty
 
 基於明刻本之復古草書字體。
 
-### [ [Download Font](https://github.com/LingDong-/rhyme-grass-font/releases) | [Try Online]() | [Dataset](https://github.com/LingDong-/cybt-dataset) ]
+### [ [Download Font](https://github.com/LingDong-/rhyme-grass-font/releases) | [Try Online](https://rg-font.netlify.app/) | [Dataset](https://github.com/LingDong-/cybt-dataset) ]
 
 Featuring:
 
@@ -43,7 +43,7 @@ See **workflow** section below for details.
 
 ### The Dataset
 
-The labelled dataset for the font is available in its own repo, [LingDong-/cybt-dataset](https://github.com/LingDong-/cybt-dataset). 
+The labelled dataset for the font is available in its own repo, [LingDong-/cybt-dataset](https://github.com/LingDong-/cybt-dataset) (CC-BY-4.0). 
 
 ## Gallery
 
@@ -75,6 +75,14 @@ If you wish to work with the existing dataset, clone the separate [dataset repo]
 cd rhyme-grass-font
 git clone https://github.com/LingDong-/cybt-dataset.git
 ```
+
+Setup the dataset repo:
+
+```sh
+cd cybt-dataset && make sync && cd ../
+```
+
+if you make modifications to the dataset, call the above again before commiting.
 
 If you'd like to start afresh, then simply create the empty folders *inside* this repo like so:
 
