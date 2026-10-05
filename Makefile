@@ -81,7 +81,7 @@ gen.woffsplit:
 
 dl.release:
 	curl -L -o Rhyme-Grass-G.ttf.zip https://github.com/LingDong-/rhyme-grass-font/releases/download/v0.0/Rhyme-Grass-G.ttf.zip
-	unzip Rhyme-Grass-G.ttf.zip
+	unzip -o Rhyme-Grass-G.ttf.zip
 
 deploy: dl.release gen.woffsplit
 	node tools/makesite.js
